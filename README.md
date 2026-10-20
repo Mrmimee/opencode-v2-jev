@@ -16,8 +16,7 @@ OpenCode V2 plugin (jev.ts)
 ```
 
 Self-contained: **no Python, no bridge, no Hermes dependency**. The plugin only needs an
-Agnes API key; prompts, JSON-schema output, validation, retry, cache and the guard logic all
-live in `jev.ts`.
+Agnes API key (or any OpenAI-compatible endpoint); prompts, JSON-schema output, validation, retry, cache and the guard logic all live in `jev.ts`.
 
 ## Requirements
 
@@ -48,6 +47,20 @@ OpenCode watches that directory and reloads the plugin automatically. A restart 
 ```powershell
 setx AGNES_API_KEY "<your-key>"
 ```
+
+### Model
+
+Default: `agnes-3.0-flash` on `https://apihub.agnes-ai.com/v1`.
+
+Any OpenAI-compatible chat endpoint can be used instead:
+
+```powershell
+setx JEV_BASE_URL "http://127.0.0.1:3425/v1"   # base URL, no /chat/completions
+setx JEV_MODEL "qoder/qfmodel"
+setx JEV_API_KEY "magpie"                       # omit to reuse AGNES_API_KEY
+```
+
+Restart OpenCode after changing these; they are read at plugin load.
 
 ### Proxy
 

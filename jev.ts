@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-const ENDPOINT = "https://apihub.agnes-ai.com/v1/chat/completions"
-const MODEL = "agnes-3.0-flash"
+const BASE_URL = (process.env.JEV_BASE_URL || "https://apihub.agnes-ai.com/v1").replace(/\/+$/, "")
+const ENDPOINT = `${BASE_URL}/chat/completions`
+const MODEL = process.env.JEV_MODEL || "agnes-3.0-flash"
+const IS_LOCAL = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/i.test(ENDPOINT)
 const TTL_MS = 3600_000
 const MAX_CACHE = 256
 const NEVER = new AbortController().signal
@@ -35,6 +37,7 @@ let cachedKey: string | null = null
 
 function apiKey(): string {
   if (cachedKey !== null) return cachedKey
+  if (process.env.JEV_API_KEY) return (cachedKey = process.env.JEV_API_KEY)
   if (process.env.AGNES_API_KEY) return (cachedKey = process.env.AGNES_API_KEY)
   const files = [join(homedir(), "OneDrive", "桌面", "apikey.txt"), join(homedir(), "Desktop", "apikey.txt")]
   for (const file of files) {
@@ -138,6 +141,7 @@ function schemaFor(questions: Question[]) {
       const criteria = question.criteria as string[]
       properties[question.id] = {
         type: "integer",
+        enum: criteria.map((_, index) => index),
         description: `${question.instructions}\nScore levels, answer with the integer:\n${criteria
           .map((criterion, index) => `${index} = ${text(criterion)}`)
           .join("\n")}`,
@@ -229,7 +233,7 @@ async function callModel(messages: any[], timeoutMs: number, signal: AbortSignal
     }
     // Bun 的 fetch 支持显式代理；Node 的直接连接在此网络下可能很慢。
     const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY
-    if (proxy && typeof (globalThis as any).Bun !== "undefined") init.proxy = proxy
+    if (proxy && !IS_LOCAL && typeof (globalThis as any).Bun !== "undefined") init.proxy = proxy
 
     const response = await fetch(ENDPOINT, init)
     if (!response.ok) {
