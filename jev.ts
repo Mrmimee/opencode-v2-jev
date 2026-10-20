@@ -20,6 +20,14 @@ type Question = { id: string; kind: Kind; instructions: string; criteria?: Crite
 type Outcome = Record<string, unknown>
 
 class TimeoutError extends Error {}
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
 
 // ---------- 凭据与脱敏 ----------
 
@@ -139,7 +147,14 @@ function schemaFor(questions: Question[]) {
   return {
     type: "object",
     properties: {
-      answers: { type: "object", properties, required, additionalProperties: false },
+      answers: {
+        type: "object",
+        description:
+          "Exactly one answer per property below. Use these property names verbatim and do not add, rename, or nest them under any other key.",
+        properties,
+        required,
+        additionalProperties: false,
+      },
     },
     required: ["answers"],
     additionalProperties: false,
@@ -166,8 +181,16 @@ function parseAnswers(raw: string, questions: Question[]): Outcome {
   for (const question of questions) {
     const value = source[question.id]
     if (question.kind === "noul") {
-      if (typeof value !== "boolean") throw new Error(`${question.id} 必须是布尔值`)
-      answers[question.id] = value ? 1 : 0
+      const flag =
+        typeof value === "boolean"
+          ? value
+          : value === 0 || value === 1
+            ? value === 1
+            : typeof value === "string" && /^(true|false)$/i.test(value)
+              ? value.toLowerCase() === "true"
+              : null
+      if (flag === null) throw new Error(`${question.id} 必须是布尔值`)
+      answers[question.id] = flag ? 1 : 0
     } else if (question.kind === "choice") {
       if (typeof value !== "string" || !(value in (question.criteria as object))) {
         throw new Error(`${question.id} 必须是允许的选项之一`)
@@ -201,7 +224,7 @@ async function callModel(messages: any[], timeoutMs: number, signal: AbortSignal
     const init: any = {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey()}` },
-      body: JSON.stringify({ model: MODEL, messages }),
+      body: JSON.stringify({ model: MODEL, messages, max_tokens: 512 }),
       signal: controller.signal,
     }
     // Bun 的 fetch 支持显式代理；Node 的直接连接在此网络下可能很慢。
@@ -211,7 +234,7 @@ async function callModel(messages: any[], timeoutMs: number, signal: AbortSignal
     const response = await fetch(ENDPOINT, init)
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 300)
-      throw new Error(`HTTP ${response.status}: ${detail}`)
+      throw new HttpError(response.status, `HTTP ${response.status}: ${detail}`)
     }
     const data: any = await response.json()
     const content = data?.choices?.[0]?.message?.content
@@ -271,20 +294,33 @@ async function evaluate(tool: string, state: unknown, questions: Question[], tim
   ]
 
   const usage = { input_tokens: 0, output_tokens: 0 }
-  let retries = 0
+  let malformedRetries = 0
+  let networkRetries = 0
   let answers: Outcome | null = null
 
   while (answers === null) {
     const remaining = deadline - Date.now()
     if (remaining <= 0) throw new TimeoutError("timeout")
-    const response = await callModel(messages, remaining, signal)
+
+    let response: { content: string; usage: any }
+    try {
+      response = await callModel(messages, remaining, signal)
+    } catch (error: any) {
+      const transient =
+        error instanceof TypeError ||
+        (error instanceof HttpError && (error.status === 429 || error.status >= 500))
+      if (!transient || networkRetries >= 1 || deadline - Date.now() < 2000) throw error
+      networkRetries += 1
+      continue
+    }
+
     usage.input_tokens += Number(response.usage.prompt_tokens) || 0
     usage.output_tokens += Number(response.usage.completion_tokens) || 0
     try {
       answers = parseAnswers(response.content, questions)
     } catch (error: any) {
-      if (retries >= 1) throw error
-      retries += 1
+      if (malformedRetries >= 1) throw error
+      malformedRetries += 1
       messages.push(
         { role: "assistant", content: response.content.slice(0, 2000) },
         {

@@ -82,6 +82,7 @@ Batch multiple questions in one call with `choices` / `nouls` / `scores`.
   `no_cache: true` forces a fresh call. Restarting OpenCode clears it.
 - `state` is redacted before being sent (tokens, keys, `password=` and similar fields).
 - Malformed model output is corrected and retried once.
+- Transient network failures and HTTP 429/5xx are retried once within the time budget.
 
 ### Failure semantics
 
