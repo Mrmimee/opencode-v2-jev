@@ -5,9 +5,11 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const BRIDGE = join(dirname(fileURLToPath(import.meta.url)), "jev_bridge.py")
+const WIN = process.platform === "win32"
 const PYTHON =
-  process.env.JEV_PYTHON || join(homedir(), "jev-starter", ".venv", "Scripts", "python.exe")
-const DEFAULTS: Record<string, number> = { jev: 15, jev_guard: 45 }
+  process.env.JEV_PYTHON ||
+  join(homedir(), "jev-starter", ".venv", WIN ? "Scripts" : "bin", WIN ? "python.exe" : "python")
+const NEVER = new AbortController().signal
 
 const error = (message: string) => JSON.stringify({ error: message, engine: "none" })
 
@@ -58,38 +60,34 @@ const timeoutSeconds = {
   description: "超时熔断（秒）。默认 jev 15s / jev_guard 45s，上限 120s；超时返回 error，无本地兜底。",
 }
 const noCache = { type: "boolean", description: "跳过本地缓存，强制实时推理（默认 false）。" }
+const common = { state, timeout_seconds: timeoutSeconds, no_cache: noCache }
 
-const choice = {
+const question = (intent: string, extra: Record<string, unknown> = {}) => ({
   type: "object",
   properties: {
     name: { type: "string", description: "题名" },
-    instructions: { type: "string", description: "单选意图" },
+    instructions: { type: "string", description: intent },
+    ...extra,
+  },
+  additionalProperties: false,
+})
+
+const choice = {
+  ...question("单选意图", {
     criteria: {
       type: "object",
       additionalProperties: { type: "string" },
       description: "选项及含义，如 {'terminal': '命令行', 'browser': '浏览器'}",
     },
-  },
+  }),
   required: ["criteria"],
-  additionalProperties: false,
 }
-const noul = {
-  type: "object",
-  properties: {
-    name: { type: "string", description: "题名" },
-    instructions: { type: "string", description: "判断意图" },
-  },
-  additionalProperties: false,
-}
+const noul = question("判断意图")
 const score = {
-  type: "object",
-  properties: {
-    name: { type: "string", description: "题名" },
-    instructions: { type: "string", description: "打分意图" },
+  ...question("打分意图", {
     criteria: { type: "array", items: { type: "string" }, description: "评分梯度，如 ['低','中','高']" },
-  },
+  }),
   required: ["criteria"],
-  additionalProperties: false,
 }
 
 const tools = {
@@ -102,15 +100,13 @@ const tools = {
     input: {
       type: "object",
       properties: {
-        state,
+        ...common,
         choice,
         choices: { type: "array", items: choice, description: "多个单选题（并发裁决）" },
         noul,
         nouls: { type: "array", items: noul, description: "多个是非题（并发裁决）" },
         score,
         scores: { type: "array", items: score, description: "多个打分题（并发裁决）" },
-        timeout_seconds: timeoutSeconds,
-        no_cache: noCache,
       },
       required: ["state"],
       additionalProperties: false,
@@ -124,7 +120,7 @@ const tools = {
     input: {
       type: "object",
       properties: {
-        state,
+        ...common,
         guard: {
           type: "object",
           properties: {
@@ -133,8 +129,6 @@ const tools = {
           },
           additionalProperties: false,
         },
-        timeout_seconds: timeoutSeconds,
-        no_cache: noCache,
       },
       required: ["state"],
       additionalProperties: false,
@@ -150,11 +144,9 @@ export default {
         editor.add({
           ...def,
           name,
-          execute: async (input: any, context: any) => {
-            const payload = { ...input, timeout_seconds: input.timeout_seconds ?? DEFAULTS[name] }
-            const signal = context?.signal ?? new AbortController().signal
-            return { content: await runBridge(name, payload, signal) }
-          },
+          execute: async (input: any, context: any) => ({
+            content: await runBridge(name, input, context?.signal ?? NEVER),
+          }),
         })
       }
     })

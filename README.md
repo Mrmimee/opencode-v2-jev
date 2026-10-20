@@ -53,7 +53,7 @@ setx AGNES_API_KEY "<your-key>"   # skip if the Hermes plugin already resolves a
 
 | Variable | Default | Purpose |
 | :-- | :-- | :-- |
-| `JEV_PYTHON` | `~/jev-starter/.venv/Scripts/python.exe` | Python interpreter that has `system_one_adapter` |
+| `JEV_PYTHON` | `~/jev-starter/.venv` (`Scripts/python.exe` on Windows, `bin/python` elsewhere) | Python interpreter that has `system_one_adapter` |
 | `JEV_HERMES_PLUGIN` | `%LOCALAPPDATA%/hermes/plugins/jev/__init__.py` | Path to the Hermes jev plugin |
 | `AGNES_API_KEY` | — | Agnes API key (never logged) |
 
