@@ -1,4 +1,4 @@
-# jev-opencode-v2
+# opencode-v2-jev
 
 Jev decision engine for **OpenCode V2** — registers two tools that return structured judgements
 instead of chat text:
