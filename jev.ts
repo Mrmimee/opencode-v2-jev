@@ -517,6 +517,26 @@ const score = {
   required: ["criteria"],
 }
 
+function setTitle(context: any, title: string) {
+  try {
+    context?.metadata?.({ title })
+  } catch {}
+}
+
+function summarize(tool: string, result: Outcome): string {
+  const seconds = typeof result.latency_seconds === "number" ? `${result.latency_seconds}s` : ""
+  const cached = result.cache_hit ? " · 缓存" : ""
+  const icon = tool === "jev_guard" ? "🛡️" : "🧠"
+  const label = tool === "jev_guard" ? "Jev Guard" : "Jev"
+  if (result.error) return `${icon} ${label} · 失败：${String(result.error).slice(0, 60)}`
+  if (tool === "jev_guard") {
+    return `${icon} ${label} · ${result.verdict} (${result.probability}) · ${seconds}${cached}`
+  }
+  const entries = result.answers && typeof result.answers === "object" ? Object.entries(result.answers as Outcome) : []
+  const answers = entries.slice(0, 4).map(([key, value]) => `${key}=${String(value).slice(0, 24)}`).join(" / ")
+  return `${icon} ${label} · ${answers || "完成"} · ${seconds}${cached}`.slice(0, 120)
+}
+
 const tools = {
   jev: {
     description:
@@ -572,8 +592,10 @@ export default {
           ...def,
           name,
           execute: async (input: any, context: any) => {
-            const signal = context?.signal ?? NEVER
+            setTitle(context, name === "jev_guard" ? "🛡️ Jev Guard · 裁决中…" : "🧠 Jev · 裁决中…")
+            const signal = context?.signal ?? context?.abort ?? NEVER
             const result = name === "jev_guard" ? await handleGuard(input, signal) : await handleJev(input, signal)
+            setTitle(context, summarize(name, result))
             return { content: JSON.stringify(result, null, 2) }
           },
         })
